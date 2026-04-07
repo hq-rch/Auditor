@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Auditor Pro - Clean Output</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Times+New+Roman&display=swap');
+        
+        body { font-family: 'Inter', sans-serif; background-color: #f3f4f6; }
+        
+        /* Layout Kertas A4 Profesional */
+        .report-page {
+            background: white;
+            width: 210mm;
+            min-height: 297mm;
+            padding: 25mm;
+            margin: 20px auto;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+            color: #1a1a1a;
+            line-height: 1.5;
+        }
+
+        #excelPreview table { width: 100%; border-collapse: collapse; font-size: 11px; margin-top: 10px; }
+        #excelPreview th { background: #f3f4f6; border: 1px solid #94a3b8; padding: 8px; text-align: left; font-weight: bold; }
+        #excelPreview td { border: 1px solid #cbd5e1; padding: 6px; }
+
+        @media print {
+            .no-print { display: none !important; }
+            body { background: white; margin: 0; }
+            .report-page { margin: 0; box-shadow: none; width: 100%; padding: 15mm; }
+        }
+
+        /* Styling teks hasil AI */
+        .ai-content h4 { font-weight: bold; color: #000; margin-top: 20px; margin-bottom: 8px; text-transform: uppercase; border-bottom: 2px solid #eee; font-size: 15px; }
+        .ai-content p { margin-bottom: 12px; text-align: justify; }
+        .ai-content ul { margin-left: 20px; list-style-type: disc; margin-bottom: 15px; }
+        .ai-content strong { color: #111; }
+    </style>
+</head>
+<body>
+
+    <!-- Tombol Kontrol (Hidden saat Print) -->
+    <div class="no-print bg-white border-b shadow-sm sticky top-0 z-50 p-4">
+        <div class="max-w-5xl mx-auto flex flex-wrap items-center justify-between gap-4">
+            <div>
+                <h1 class="text-xl font-bold text-blue-900">AI Financial Auditor <span class="text-xs bg-blue-100 text-blue-700 px-2 py-1 rounded">v2.1 Clean</span></h1>
+            </div>
+            <div class="flex gap-2">
+                <input type="file" id="inputExcel" accept=".xlsx, .xls" class="text-sm border rounded p-2">
+                <button onclick="processAudit()" id="btnAction" class="bg-blue-700 hover:bg-blue-800 text-white px-6 py-2 rounded font-bold transition flex items-center">
+                    <span id="spinner" class="hidden mr-2 animate-spin">↻</span> Jalankan Analisis
+                </button>
+                <button onclick="printPDF()" class="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded font-bold transition">
+                    Cetak PDF
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Area Laporan -->
+    <div id="report-wrap">
+        <div class="report-page">
+            <!-- Kop Surat Digital -->
+            <div class="text-center border-b-4 border-black pb-4 mb-8">
+                <h2 class="text-2xl font-serif font-bold uppercase tracking-widest">Laporan Hasil Analisis Auditor AI</h2>
+                <p class="text-sm uppercase tracking-wider mt-1">Sistem Audit Otomatis - Laporan Rahasia</p>
+            </div>
+
+            <div class="flex justify-between text-xs mb-8 italic">
+                <p id="refId">Ref: AUDIT/AI/</p>
+                <p id="dateNow"></p>
+            </div>
+
+            <!-- Konten 1: Tabel Data -->
+            <div class="mb-10">
+                <h3 class="text-sm font-bold border-l-4 border-blue-900 pl-2 mb-4 text-blue-900">I. RINGKASAN POSISI KEUANGAN (DATA INPUT)</h3>
+                <div id="excelPreview" class="overflow-hidden">
+                    <p class="text-gray-400 italic text-center py-10 border border-dashed">Belum ada file diunggah.</p>
+                </div>
+            </div>
+
+            <!-- Konten 2: Hasil AI -->
+            <div class="mb-10">
+                <h3 class="text-sm font-bold border-l-4 border-blue-900 pl-2 mb-4 text-blue-900">II. TEMUAN AUDIT & ANALISIS STRATEGIS</h3>
+                <div id="aiOutput" class="ai-content text-sm text-gray-800 min-h-[300px]">
+                    <p class="text-gray-400">Silahkan klik 'Jalankan Analisis' untuk memproses data.</p>
+                </div>
+            </div>
+
+            <!-- Footer Tanda Tangan -->
+            <div class="mt-24 pt-10 grid grid-cols-2 text-center text-sm">
+                <div class="px-10">
+                    <p class="mb-20 italic text-gray-500">Dianalisis Oleh System:</p>
+                    <p class="font-bold border-t border-black pt-2">AUDITOR AI ENGINE</p>
+                </div>
+                <div class="px-10">
+                    <p class="mb-20 italic text-gray-500">Disetujui Oleh:</p>
+                    <p class="font-bold border-t border-black pt-2">( ........................................ )</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let jsonData = [];
+        document.getElementById('dateNow').innerText = "Dicetak pada: " + new Date().toLocaleString('id-ID');
+        document.getElementById('refId').innerText = "Ref No: AI-" + Math.random().toString(36).substr(2, 9).toUpperCase();
+
+        // 1. Baca Excel
+        document.getElementById('inputExcel').addEventListener('change', function(e) {
+            const file = e.target.files[0];
+            const reader = new FileReader();
+            reader.onload = function(evt) {
+                const data = new Uint8Array(evt.target.result);
+                const workbook = XLSX.read(data, {type: 'array'});
+                const sheet = workbook.Sheets[workbook.SheetNames[0]];
+                
+                // Tampilkan preview terbatas (15 baris pertama saja di preview agar tidak kepanjangan)
+                const rows = XLSX.utils.sheet_to_json(sheet);
+                const slicedSheet = XLSX.utils.json_to_sheet(rows.slice(0, 20));
+                document.getElementById('excelPreview').innerHTML = XLSX.utils.sheet_to_html(slicedSheet);
+                
+                jsonData = rows;
+            };
+            reader.readAsArrayBuffer(file);
+        });
+
+        // 2. Kirim ke AI & Bersihkan Output
+        async function processAudit() {
+            const out = document.getElementById('aiOutput');
+            const btn = document.getElementById('btnAction');
+            const spinner = document.getElementById('spinner');
+
+            if (jsonData.length === 0) {
+                alert("Pilih file Excel terlebih dahulu!");
+                return;
+            }
+
+            btn.disabled = true;
+            spinner.classList.remove('hidden');
+            out.innerHTML = "<p class='animate-pulse text-blue-600 font-bold'>AI sedang melakukan verifikasi data dan perhitungan rasio...</p>";
+
+            const dataSample = JSON.stringify(jsonData.slice(0, 50));
+            
+            // PROMPT YANG SANGAT KETAT
+            const prompt = `Lakukan audit keuangan pada data ini: ${dataSample}. 
+            Tuliskan dalam Bahasa Indonesia yang formal.
+            HANYA BERIKAN teks laporan yang berisi: 
+            1. Analisis Kesehatan Laba/Rugi.
+            2. Temuan Red Flags/Anomali.
+            3. Rekomendasi Strategis.
+            DILARANG memberikan pembukaan, DILARANG memberikan penutup, DILARANG memberikan JSON, dan DILARANG memberikan reasoning_content. 
+            Langsung berikan poin-poinnya saja.`;
+
+            try {
+                const response = await fetch(`https://text.pollinations.ai/${encodeURIComponent(prompt)}`);
+                let resultText = await response.text();
+
+                // --- SISTEM FILTER BERLAPIS ---
+                
+                // 1. Jika hasilnya format JSON (masalah role:assistant)
+                try {
+                    const parsed = JSON.parse(resultText);
+                    if (parsed.content) resultText = parsed.content;
+                    else if (parsed.choices && parsed.choices[0].message.content) resultText = parsed.choices[0].message.content;
+                } catch (e) { /* Bukan JSON, lanjut */ }
+
+                // 2. Buang paksa tag pemikiran (Think Tag)
+                resultText = resultText.replace(/<think>[\s\S]*?<\/think>/gi, '');
+
+                // 3. Buang paksa pola JSON jika AI bandel tetap mengirim JSON string
+                if (resultText.includes('"content":')) {
+                    const match = resultText.match(/"content"\s*:\s*"([\s\S]*?)"/);
+                    if (match) resultText = match[1];
+                }
+
+                // 4. Bersihkan karakter pelarian (Escaped characters)
+                resultText = resultText.replace(/\\n/g, '\n').replace(/\\"/g, '"');
+
+                // 5. Final Check: Jika masih ada tanda kurung kurawal di awal, bersihkan manual
+                if (resultText.trim().startsWith('{')) {
+                    resultText = "Maaf, terjadi gangguan pada format AI. Silahkan klik 'Jalankan Analisis' sekali lagi.";
+                }
+
+                out.innerHTML = formatToReport(resultText);
+            } catch (err) {
+                out.innerHTML = "<p class='text-red-500 font-bold'>Koneksi gagal. Coba lagi.</p>";
+            } finally {
+                btn.disabled = false;
+                spinner.classList.add('hidden');
+            }
+        }
+
+        // Fungsi mempercantik teks agar layak jadi laporan cetak
+        function formatToReport(text) {
+            return text
+                .replace(/^### (.*$)/gim, '<h4>$1</h4>')
+                .replace(/^## (.*$)/gim, '<h4>$1</h4>')
+                .replace(/^# (.*$)/gim, '<h4>$1</h4>')
+                .replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>')
+                .replace(/^\s*[-*+]\s+(.*)/gm, '<li>$1</li>')
+                .replace(/(<li>.*<\/li>)/s, '<ul>$1</ul>')
+                .replace(/\n/g, '<br>');
+        }
+
+        // 3. Print
+        function printPDF() {
+            const element = document.getElementById('report-wrap');
+            const opt = {
+                margin:       0,
+                filename:     'Laporan_Audit_AI_Final.pdf',
+                image:        { type: 'jpeg', quality: 1 },
+                html2canvas:  { scale: 2, useCORS: true },
+                jsPDF:        { unit: 'mm', format: 'a4', orientation: 'portrait' }
+            };
+            html2pdf().set(opt).from(element).save();
+        }
+    </script>
+</body>
+</html>
